@@ -23,6 +23,7 @@ console.log(process.env.MONGO_URL);
 mongoose.connect(process.env.MONGO_URL);
 
 
+// 测试用
 app.get("/test", (req, res) => {
     res.json('test, ok');
 });
@@ -40,11 +41,9 @@ app.post("/inputsurgery", async(req, res) => {
         const surgeryDoc = await Surgery.findOne({surgeryId: data.surgeryId});
         // 如果有数据库中存在该次手术的id，则不更新
         if (surgeryDoc) {
-            // console.log('数据库中存在数据');
-            // await Surgery.updateOne({surgeryId: data.surgeryId}, {$set: data});
             res.status(200).json('数据库中存在该手术编号，请输入新的手术数据');
         }
-        // 如果数据库中不存在盖茨手术手术id，则新建手术记录
+        // 如果数据库中不存在本次手术手术id，则新建手术记录
         else {
             const surgeryDoc = await Surgery.create(
                 data
@@ -248,7 +247,7 @@ const updateOtherCost = async(curSurgery) => {
     await SurgeryCost.updateOne({surgeryId: surgeryId}, {$set: {otherCost: otherCost}});
 }
 
-
+// 1.0 计算单台手术成本
 const calCost = async (surgeryId) => {
     try {
         const surgeryDoc = await Surgery.findOne({surgeryId: surgeryId});
@@ -316,18 +315,17 @@ app.post("/updatesurgery", async(req, res) => {
 })
 
 
-// 前端发送请求接口，获取后端的单台手术数据
+// 获取单台手术数据
 app.get('/getSurgeryCost', async (req, res) => {
     try {
         const allSurgeries = await SurgeryCost.find({});
-        console.log(allSurgeries);
         res.status(200).json(allSurgeries);
     } catch (e) {
         res.status(500).json(e);
     }
 })
 
-
+// 2.0 计算手术室成本
 const calSurgeryRoomCost = async() => {
     // SurgeryCost.aggregate
     const pipeline = [
@@ -351,18 +349,7 @@ const calSurgeryRoomCost = async() => {
         docs.push(doc);
         // console.log(doc);
     }
-    return docs;
-
-
-    // 更改成本数据库中的值
-    // const ifExistRoomCost = await SurgeryRoom.find({});
-    // if (ifExistRoomCost) {
-    //     // await SurgeryRoom.updateMany(docs);
-    // }
-    // else {
-    //     await SurgeryRoom.insertMany(docs);
-    // }
-    
+    return docs;    
 }
 
 
@@ -370,6 +357,12 @@ const calSurgeryRoomCost = async() => {
 app.get('/getSurgeryRoomCost', async (req, res) =>{
     try {
         const datas = await calSurgeryRoomCost();
+        for (let i = 0; i < datas.length; i++) {
+            datas[i].centerCost = datas[i].equipmentCost + datas[i].stuffCost + datas[i].otherCost;
+            datas[i].sumMaterial = datas[i].drugCost + datas[i].materialCost;
+            datas[i].sumCost = datas[i].centerCost + datas[i].sumMaterial;
+            datas[i].avgCost = datas[i].sumCost / datas[i].num;
+        }
         res.status(200).json(datas);
 
     } catch (e) {
@@ -378,6 +371,7 @@ app.get('/getSurgeryRoomCost', async (req, res) =>{
 })
 
 
+// 3.0 计算作业中心成本
 const calCenterCost = async () => {
     const data = [
         {name: '专业仪器折旧', manage: 0, unused: 0, hundred: 0, thousand: 0, million: 0, dsa: 0},
@@ -385,7 +379,6 @@ const calCenterCost = async () => {
         {name: '合计作业中心成本', manage: 0, unused: 0, hundred: 0, thousand: 0, million: 0, dsa: 0}
     ];
     rawData = await calSurgeryRoomCost();
-
     const allOthers = await Other.find({});
     let management = 0;
     let unused = 0;
@@ -396,14 +389,13 @@ const calCenterCost = async () => {
     data[1].manage = management;
     data[1].unused = unused;
     data[2].manage = data[0].manage + data[1].manage;
-    data[2].manage = data[0].manage + data[1].manage;
+    data[2].unused = data[0].unused + data[1].unused;
 
     const updateCenterData = (doc, name) =>{
         data[0][name] = doc.equipmentCost;
         data[1][name] = doc.otherCost;
         data[2][name] = doc.equipmentCost + doc.otherCost;
     };
-
     for (const doc of rawData) {
         if (doc._id === '百级尘埃手术') {
             updateCenterData(doc, 'hundred');
@@ -429,6 +421,42 @@ app.get('/getCenterCost', async (req, res) => {
 
     } catch (e) {
         res.status(500).json(e);
+    }
+})
+
+// 4.0 计算科室成本
+const calDepartmentCost = async() => {
+    const rawData = await calSurgeryRoomCost();
+    console.log(rawData);
+    const data = [{name: "科室成本", cost0: 0, cost1: 0, cost2: 0, cost3: 0},];
+    for (const doc of rawData) {
+        const sumCost = doc.stuffCost + doc.materialCost + doc.drugCost + doc.otherCost + doc.equipmentCost;
+        const name = doc._id;
+        if (name === '一类切口手术') data[0].cost1 = sumCost;
+        else if (name === '二类切口手术') data[0].cost2 = sumCost;
+        else if (name === '血管类手术') data[0].cost3 = sumCost;
+        else if (name === '百级尘埃手术') data[0].cost0 = sumCost;
+    }
+    return data;
+}
+
+// 获取科室成本
+app.get('/getDepartment', async (req, res) => {
+    try {
+        const data = await calDepartmentCost();
+        res.status(200).json(data);
+    } catch(e) {
+        res.status(500).json(e);
+    }
+})
+
+
+// 更新财务输入数据
+app.post('/updateInputData', async (req, res) => {
+    try {
+        res.status(200).json('success');
+    } catch (e) {
+
     }
 })
 
