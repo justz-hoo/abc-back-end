@@ -3,7 +3,6 @@ const app = express();
 const mongoose = require('mongoose');
 require('dotenv').config();
 const cors = require('cors');
-const { Mongoose } = require("mongoose");
 const Surgery = require('./models/surgery');
 const Equipment = require('./models/equipment');
 const SurgeryCost = require('./models/surgerycost');
@@ -11,7 +10,6 @@ const Material = require('./models/material');
 const Stuff = require('./models/salary');
 const Drug = require('./models/drug');
 const Other = require('./models/other');
-const SurgeryRoom = require('./models/surgeryRoomCost');
 
 app.use(cors({
     credentials: true,
@@ -95,19 +93,45 @@ const updateSingleSurgery = async() => {
     })
 }
 
+
+
 // 更新手术的设备成本
-const updateEquipmentCost = async (curSurgery) => {
+const updateEquipmentCost = async (curSurgery, ifAdd) => {
     // console.log(curSurgery.equipmentUsage);
     const equipments = curSurgery.equipmentUsage;
-    // 1）更新设备总用时
-    equipments.forEach(async (equip, index) => {
-        const curEquip = await Equipment.findOne({name: equip.name});
-        const newUsageTime = curEquip.usageTime + equip.usage;
-        await Equipment.updateOne({name: equip.name}, {$set: {usageTime: newUsageTime}})
-    });
+    
+    // equipments.forEach(async (equip, index) => {
+    //     const curEquip = await Equipment.findOne({name: equip.name});
+    //     if (ifAdd) {
+    //         const newUsageTime = curEquip.usageTime + equip.usage;
+    //         await Equipment.updateOne({name: equip.name}, {$set: {usageTime: newUsageTime}});
+    //     }
+    //     else {
+    //         const newUsageTime = curEquip.usageTime - equip.usage >= 0 ? curEquip.usageTime - equip.usage: 0;
+    //         await Equipment.updateOne({name: equip.name}, {$set: {usageTime: newUsageTime}});
+    //         console.log('newUsageTime', newUsageTime);
+    //     }
+        
+    // });
 
-    setTimeout(() => {
-        updateSingleSurgery();
+    // 1）更新设备总用时
+    for (equip of equipments) {
+        const curEquip = await Equipment.findOne({name: equip.name});
+        if (ifAdd) {
+            const newUsageTime = curEquip.usageTime + equip.usage;
+            await Equipment.updateOne({name: equip.name}, {$set: {usageTime: newUsageTime}});
+        }
+        else {
+            const newUsageTime = curEquip.usageTime - equip.usage >= 0 ? curEquip.usageTime - equip.usage: 0;
+            await Equipment.updateOne({name: equip.name}, {$set: {usageTime: newUsageTime}});
+            console.log('newUsageTime', newUsageTime);
+        }
+    }
+
+    // 更新每一台手术的设备耗材
+    // 这里异步等待一下，等待前面数据库CRUD操作完成，否则会有bug
+    setTimeout(async() => {
+        await updateSingleSurgery();
     }, 10)
 }
 
@@ -149,6 +173,7 @@ const updateDrugCost = async(curSurgery) => {
     }
 
     const ifExistInSurCost = await SurgeryCost.findOne({surgeryId: surgeryId});
+    console.log('成本：', sumCost);
     if (ifExistInSurCost) {
         console.log(sumCost);
         await SurgeryCost.updateOne({surgeryId: surgeryId}, {$set: {drugCost: sumCost}});   
@@ -263,7 +288,7 @@ const calCost = async (surgeryId) => {
                 }); 
             };
             console.log('search success');
-            await updateEquipmentCost(surgeryDoc);
+            await updateEquipmentCost(surgeryDoc, ifAdd=true);
             await updateMaterialCost(surgeryDoc);
             await updateStuffCost(surgeryDoc);
             await updateOtherCost(surgeryDoc);
@@ -278,9 +303,7 @@ const calCost = async (surgeryId) => {
 app.post("/updatesurgery", async(req, res) => {
     try {
         const data = req.body;
-        // console.log(data);
         const surgeryDoc = await Surgery.findOne({surgeryId: data.surgeryId});
-        // console.log(surgeryDoc);
 
         // 如果手术存在，则添加字段更新
         if (surgeryDoc) {
@@ -290,9 +313,7 @@ app.post("/updatesurgery", async(req, res) => {
             if (!ifUploaded) {
                 await Surgery.updateOne({surgeryId: data.surgeryId}, {$set: data})
                     .then(() => {calCost(data.surgeryId);});
-                res.status(200).json('更新成功');
-                // 此时更新每条手术的数据
-                  
+                res.status(200).json('更新成功');   
             }
             
             // 这条id的手术已经上传过，不能重复上传
@@ -549,7 +570,9 @@ app.get('/getallsurgeries', async (req, res) => {
 // 获取财务输入的Other数据
 app.get('/getallothers', async (req, res) => {
     try {
-        res.status(200).json('success');
+        const otherData = await Other.find({});
+        res.status(200).json(otherData);
+        console.log(otherData);
     } catch (e) {
         res.status(500).json(e);
     }
@@ -558,7 +581,8 @@ app.get('/getallothers', async (req, res) => {
 // 获取财务输入的人员工资
 app.get('/getallstuffsalarires', async(req, res) => {
     try {
-        res.status(200).json('success');
+        const stuffData = await Stuff.find({});
+        res.status(200).json(stuffData);
     } catch(e) {
         res.status(500).json(e);
     }
@@ -567,10 +591,100 @@ app.get('/getallstuffsalarires', async(req, res) => {
 // 获取财务输入的专业仪器成本
 app.get('/getallequipments', async(req, res) => {
     try {
-        res.status(200).json('success');
+        const equipData = await Equipment.find({});
+        res.status(200).json(equipData);
     } catch(e) {
         res.status(500).json(e);
     }
 })
 
+
+// 删除手术记录
+app.delete('/deleteSurgeryById', async(req, res) => {
+    try {
+        const surgeryId = req.body.id;
+        const surgeryDoc = await Surgery.findOne({surgeryId: surgeryId});
+        
+        // 更新设备使用时间
+        if (surgeryDoc) {
+            await updateEquipmentCost(surgeryDoc, ifAdd=false);
+        }
+        //删除这条手术记录
+        await Surgery.deleteOne({surgeryId: surgeryId});
+        await SurgeryCost.deleteOne({surgeryId: surgeryId});
+
+        res.status(200).json('success');
+
+    } catch(e) {
+        res.status(500).json(e);
+    }
+})
+
+
+// 更新麻醉材料单价
+app.post('/updateDrugUnit', async(req, res) => {
+    try {
+        const doc = req.body;
+
+        // 更新麻醉材料单价
+        await Drug.updateOne({name: doc.name}, {$set: {unitprice: doc.unitprice}});
+
+        // 更新每一台手术的麻醉材料成本
+        const allSurgeries = await Surgery.find({});
+        for (const surgeryDoc of allSurgeries) {
+            await updateDrugCost(surgeryDoc);
+        }
+
+        res.status(200).json('success');
+    } catch (e) {
+        res.status(500).json(e);
+    }
+})
+
+// 获取所有麻醉材料单价
+app.get('/getalldrugs', async(req, res) => {
+    try {
+        const datas = await Drug.find({});
+        res.status(200).json(datas);
+    } catch (e) {
+        res.status(500).json(e);
+    }
+})
+
+
+// 更新不收费卫生材料单价
+app.post('/updateMaterialUnit', async(req, res) => {
+    try {
+        const doc = req.body;
+
+        // 更新不收费卫生材料单价
+        await Material.updateOne({name: doc.name}, {$set: {unitprice: doc.unitprice}});
+
+        // 更新每一台手术的不收费卫生材料成本
+        const allSurgeries = await Surgery.find({});
+        for (const surgeryDoc of allSurgeries) {
+            await updateMaterialCost(surgeryDoc);
+        }
+        res.status(200).json('success');
+    } catch (e) {
+        res.status(500).json(e);
+    }
+})
+
+
+// 获取所有不收费卫生材料单价
+app.get('/getallmaterials', async(req, res) => {
+    try {
+        const datas = await Material.find({});
+        res.status(200).json(datas);
+    } catch (e) {
+        res.status(500).json(e);
+    }
+})
+
+
+// 监听本机4000端口，即后端运行在4000端口上
+// [注]：前端运行在3000端口上
+// 前后端运行在不同的端口上，进行数据传输，因此要解决跨域问题
+// 使用cors解决跨域访问，见index.js 16-20行
 app.listen(4000);
