@@ -451,12 +451,125 @@ app.get('/getDepartment', async (req, res) => {
 })
 
 
-// 更新财务输入数据
-app.post('/updateInputData', async (req, res) => {
+// 更新人员工资数据输入数据
+app.post('/updateSalary', async (req, res) => {
+    try {
+        const data = req.body;
+        for (item of data) {
+            await Stuff.updateOne({type: item.type}, {$set: {
+                num: item.num,
+                workday: item.workday,
+                worktimeperday: item.worktimeperday,
+                theorytime: item.theorytime,
+                validtime: item.validtime,
+                sumsalary: item.sumsalary
+            }});
+            console.log(item);
+        }
+        // 更新人员单位成本
+        await updateAllStuffUnitCost();
+        res.status(200).json('success');
+    } catch (e) {
+        res.status(500).json(e);
+    }
+})
+
+// 更新设备设备数据
+app.post('/updateEquipment', async(req, res) => {
+    try {
+        const datas = req.body;
+        console.log(datas);
+        // 清除数据库中原有数据
+        await Equipment.deleteMany({});
+        
+        for (item of datas) {
+            await Equipment.create({name: item.name, cost: item.cost, usageTime: 0});
+            console.log(item);
+        }
+        res.status(200).json('success equipment');
+    } catch (e) {
+        res.status(500).json(e);
+    }
+})
+
+// 更新其他数据
+app.post('/updateOther', async (req, res) => {
+    try {
+        const datas = req.body;
+        console.log(datas);
+
+        // 清空其他数据库
+        await Other.deleteMany({});
+        // 添加其他数据
+        for (const item of datas) {
+            await Other.create({name: item.name, managecost: item.managecost, unusedcost: item.unusedcost})
+        }
+        res.status(200).json('success');
+    } catch(e) {
+        res.status(500).json(e);
+    }
+
+})
+
+// 初始化系统
+app.post('/initializesys', async (req, res) => {
+    try {
+        await Surgery.deleteMany({});
+        await SurgeryCost.deleteMany({});
+        await Equipment.deleteMany({});
+        await Other.deleteMany({});
+        await Stuff.updateMany({}, {$set : {
+            num: 0,
+            workday: 0,
+            worktimeperday: 0,
+            theorytime: 0,
+            validtime: 0,
+            sumsalary: 0,
+            costPerMin: 0
+        }})
+        res.status(200).json('success');
+    } catch (e) {
+        res.status(500).json(e);
+    }
+})
+
+
+// 获取手术数据列表
+app.get('/getallsurgeries', async (req, res) => {
+    try {
+        const surgeryData = await Surgery.find({});
+        console.log(surgeryData);
+        res.status(200).json(surgeryData);
+
+    } catch(e) {
+        res.status(500).json(e);
+    }
+})
+
+// 获取财务输入的Other数据
+app.get('/getallothers', async (req, res) => {
     try {
         res.status(200).json('success');
     } catch (e) {
+        res.status(500).json(e);
+    }
+})
 
+// 获取财务输入的人员工资
+app.get('/getallstuffsalarires', async(req, res) => {
+    try {
+        res.status(200).json('success');
+    } catch(e) {
+        res.status(500).json(e);
+    }
+})
+
+// 获取财务输入的专业仪器成本
+app.get('/getallequipments', async(req, res) => {
+    try {
+        res.status(200).json('success');
+    } catch(e) {
+        res.status(500).json(e);
     }
 })
 
