@@ -606,7 +606,7 @@ app.delete('/deleteSurgeryById', async(req, res) => {
         const surgeryDoc = await Surgery.findOne({surgeryId: surgeryId});
         
         // 更新设备使用时间
-        if (surgeryDoc) {
+        if (surgeryDoc && surgeryDoc.drugUsage.length !== 2) {
             await updateEquipmentCost(surgeryDoc, ifAdd=false);
         }
         //删除这条手术记录
